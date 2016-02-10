@@ -159,7 +159,7 @@ var game = (function(){
         this.initialised = true;
 
         this.platform = Object.create(self.spriteObject);
-        this.platform.sourceY = 128;
+        this.platform.sourceY = 116;
         this.platform.height = 40;
         this.platform.draw = function(){
           for(var i = 0;i<this.width/64;i++){
@@ -188,6 +188,10 @@ var game = (function(){
         this.platforms.push(this.platform2);
 
         this.player = Object.create(self.spriteObject);
+        this.player.sourceWidth = 42;
+        this.player.sourceHeight = 58;
+        this.player.width = 42;
+        this.player.height = 58;
         this.player.facing = 0;
         this.player.sideSpeed = 40;
         this.player.enginePower = 0;
@@ -201,8 +205,8 @@ var game = (function(){
         this.player.y = self.canvas.height/2-this.player.height/2;
         this.player.draw = function(){
           self.ctx.drawImage(self.config.masterSprite,
-                              this.sourceX+this.width*this.currFrame,this.sourceY+this.height*this.facing,this.sourceHeight,this.sourceWidth,
-                              this.x,this.y,this.sourceWidth,this.sourceHeight)
+                              this.sourceX+this.sourceWidth*this.currFrame,this.sourceY+this.height*this.facing,this.sourceWidth,this.sourceHeight,
+                              this.x,this.y,this.width,this.height)
         };
         this.player.update = function() {
           if(self.config.pressedKeys[self.keys.LEFT] && !self.config.pressedKeys[self.keys.RIGHT]) {
@@ -233,7 +237,10 @@ var game = (function(){
             }
           } else {
             this.currFrame = 0;
-            this.enginePower = 0;
+            this.enginePower -= 0.5;
+            if(this.enginePower < 0){
+              this.enginePower = 0;
+            }
           }
 
           this.y += (self.config.gravity*(1/self.config.fps))-(this.enginePower*(1/self.config.fps));
