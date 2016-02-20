@@ -8,6 +8,8 @@ var game = (function(){
       DOWN: 40,
       LEFT: 37,
       RIGHT: 39,
+      z: 90,
+      x: 88,
     }
     this.config = {
       masterSprite: undefined,
@@ -153,6 +155,7 @@ var game = (function(){
     this.gameState = {
       initialised: false,
       platforms: [],
+      rocketParts: [],
       player: undefined,
       init: function(){
         console.log("game state initialised");
@@ -160,32 +163,91 @@ var game = (function(){
 
         this.platform = Object.create(self.spriteObject);
         this.platform.sourceY = 116;
-        this.platform.height = 40;
+        this.platform.sourceHeight = 44;
+        this.platform.height = 44;
         this.platform.draw = function(){
           for(var i = 0;i<this.width/64;i++){
             self.ctx.drawImage(self.config.masterSprite,
-                                this.sourceX,this.sourceY,this.sourceHeight,this.sourceWidth,
+                                this.sourceX,this.sourceY,this.sourceWidth,this.sourceHeight,
                                 this.x+this.sourceWidth*i,this.y,this.sourceWidth,this.sourceHeight)
           }
         }
 
         this.ground = Object.create(this.platform);
         this.ground.width = self.canvas.width;
-        this.ground.y = self.canvas.height-this.ground.height;
+        this.ground.y = self.canvas.height-this.ground.height-25;
 
         this.platform1 = Object.create(this.platform);
         this.platform1.width = 3*this.platform1.sourceWidth;
-        this.platform1.y = 5*this.platform1.sourceHeight;
-        this.platform1.x = 2*this.platform1.sourceWidth;
+        this.platform1.y = 4*this.platform1.sourceHeight;
+        this.platform1.x = 1*this.platform1.sourceWidth;
 
         this.platform2 = Object.create(this.platform);
-        this.platform2.width = 4*this.platform1.sourceWidth;
-        this.platform2.y = 3*this.platform1.sourceHeight;
-        this.platform2.x = 11*this.platform1.sourceWidth;
+        this.platform2.width = 3*this.platform2.sourceWidth;
+        this.platform2.y = 3*this.platform2.sourceHeight;
+        this.platform2.x = 11*this.platform2.sourceWidth;
+
+        this.platform3 = Object.create(this.platform);
+        this.platform3.width = 2*this.platform3.sourceWidth;
+        this.platform3.y = 7*this.platform3.sourceHeight;
+        this.platform3.x = 6*this.platform3.sourceWidth;
 
         this.platforms.push(this.ground);
-        this.platforms.push(this.platform1);
-        this.platforms.push(this.platform2);
+        this.platforms.push(this.platform1,this.platform2,this.platform3);
+
+        this.rocketPart = Object.create(self.spriteObject)
+        this.rocketPart.fallingOnPlace = false;
+        this.rocketPart.onPlace = false;
+        this.rocketPart.isCarried = false;
+        this.rocketPart.onPlaceX = 590;
+        this.rocketPart.update = function(){
+          this.y += (self.config.gravity*(1/self.config.fps)/2)
+        };
+        this.rocketPart.draw = function(){
+          if(!this.onPlace){
+            self.ctx.drawImage(self.config.masterSprite,
+                                this.sourceX,this.sourceY,this.sourceWidth,this.sourceHeight,
+                                this.x,this.y,this.sourceWidth,this.sourceHeight)
+          } else {
+            self.ctx.drawImage(self.config.masterSprite,
+                                this.sourceX,this.sourceY,this.sourceWidth,this.sourceHeight,
+                                this.onPlaceX,this.onPlaceY,this.sourceWidth,this.sourceHeight)
+          }
+        }
+
+        this.thruster = Object.create(this.rocketPart);
+        this.thruster.onPlace = true;
+        this.thruster.sourceY = 288;
+        this.thruster.onPlaceY = self.gameState.ground.y - this.thruster.height;
+
+        this.cabin = Object.create(this.rocketPart);
+        this.cabin.type = "cabin";
+        this.cabin.prev = "thruster";
+        this.cabin.x = 150;
+        this.cabin.y = 60;
+        this.cabin.sourceY = 224;
+        this.cabin.onPlaceY = self.gameState.ground.y - this.cabin.height*2;
+
+        this.head = Object.create(this.rocketPart);
+        this.head.type = "head";
+        this.head.prev = "cabin";
+        this.head.x = 750;
+        this.head.y = 20;
+        this.head.sourceY = 160;
+        this.head.onPlaceY = self.gameState.ground.y - this.head.height*3;
+
+        this.rocketParts.push(this.thruster,this.cabin,this.head);
+
+        this.rocketLandingZone = {
+          onPlaceParts: ["thruster"],
+          x: 590,
+          width: 64,
+          draw: function(){
+            for(var i = 0; i<this.onPlaceParts.length;i++){
+              self.gameState[this.onPlaceParts[i]].draw();
+            }
+          },
+        }
 
         this.player = Object.create(self.spriteObject);
         this.player.sourceWidth = 42;
@@ -197,12 +259,13 @@ var game = (function(){
         this.player.enginePower = 0;
         this.player.maxEnginePower = 70;
         this.player.onGround = false;
+        this.player.carrying = false;
         this.player.frames = 3;
         this.player.currFrame = 0;
         this.player.dispFor = 10;
         this.player.dispTime = 0;
         this.player.x = self.canvas.width/2-this.player.width/2;
-        this.player.y = self.canvas.height/2-this.player.height/2;
+        this.player.y = self.canvas.height/2-150;
         this.player.draw = function(){
           self.ctx.drawImage(self.config.masterSprite,
                               this.sourceX+this.sourceWidth*this.currFrame,this.sourceY+this.height*this.facing,this.sourceWidth,this.sourceHeight,
@@ -255,19 +318,97 @@ var game = (function(){
       update: function(){
         if(this.player){
           this.player.update();
+          this.handlePlayerPickups();
         }
+        // check if something needs to be droped
+        for(var i = 0; i < this.rocketParts.length; i++){
+          if(this.rocketParts[i].isCarried) {
+            this.dropItemToZone(this.rocketParts[i])
+          }
+        }
+        // updated carried item location
+        for(var i = 0; i < this.rocketParts.length; i++){
+          var p = this.player;
+          if(this.rocketParts[i].isCarried) {
+            this.updateCarriedItem(this.rocketParts[i])
+          }
+        };
+        //blocking player and items against platforms
         for(var i = 0; i<this.platforms.length;i++){
-          this.blockRect(this.player,this.platforms[i])
+          for(var j = 0; j<this.rocketParts.length;j++){
+            this.blockRect(this.rocketParts[j],this.platforms[i]);
+          };
+          this.blockRect(this.player,this.platforms[i]);
+        };
+        //putting the item on place
+        for(var i = 0; i<this.rocketParts.length;i++){
+          var part = this.rocketParts[i];
+          part.update();
+          if(part.fallingOnPlace) {
+            this.itemFallingOnPlace(part);
+          }
         };
       },
       draw: function(){
         self.ctx.clearRect(0,0,self.canvas.width,self.canvas.height);
         self.ctx.fillStyle = "#000";
         self.ctx.fillRect(0,0,self.canvas.width,self.canvas.height)
+        for(var i = 0; i<this.rocketParts.length;i++){
+          this.rocketParts[i].draw();
+        };
         for(var i = 0; i<this.platforms.length;i++){
           this.platforms[i].draw();
         }
+        this.rocketLandingZone.draw();
         this.player.draw();
+      },
+      itemFallingOnPlace: function(item){
+        item.x = this.rocketLandingZone.x;
+        if(item.y > this.ground.y-item.height-50){
+          if('onPlace' in item){
+            this.rocketLandingZone.onPlaceParts.push(item.type);
+            item.fallingOnPlace = false;
+            item.onPlace = true;
+          }
+        }
+      },
+      updateCarriedItem: function(item){
+        var item = item;
+        item.x = this.player.x-15;
+        item.y = this.player.y-5;
+      },
+      dropItemToZone: function(item){
+        var item = item;
+        var zone = this.rocketLandingZone;
+        if(item.x+item.width > zone.x+25 && item.x < zone.x+zone.width-25){
+          if(zone.onPlaceParts[zone.onPlaceParts.length-1] == item.prev) {
+            this.player.carrying = false;
+            item.isCarried = false;
+            item.fallingOnPlace = true;
+          }
+        }
+      },
+      handlePlayerPickups: function(){
+        if(self.config.pressedKeys[self.keys.z]){
+          if(!this.player.carrying){
+            for(var i = 0; i < this.rocketParts.length; i++){
+              var p = this.player;
+              var rocketP = this.rocketParts[i];
+              if(this.checkCollision(p,rocketP) && !rocketP.isCarried && !rocketP.fallingOnPlace) {
+                p.carrying = true;
+                rocketP.isCarried = true;
+              }
+            }
+          }
+        }
+        if(self.config.pressedKeys[self.keys.x]){
+          for(var i = 0; i < this.rocketParts.length; i++){
+            if(this.rocketParts[i].isCarried) {
+              this.rocketParts[i].isCarried = false;
+              this.player.carrying = false;
+            }
+          }
+        }
       },
       blockRect: function(r1,r2){
         var vx = r1.centerX() - r2.centerX();
@@ -295,6 +436,12 @@ var game = (function(){
             }
           }
         }
+      },
+      checkCollision: function(obj1,obj2) {
+        return !(obj1.x + obj1.width < obj2.x ||
+                 obj2.x + obj2.width < obj1.x ||
+                 obj1.y + obj1.height < obj2.y ||
+                 obj2.y + obj2.height < obj1.y);
       },
     };
 
