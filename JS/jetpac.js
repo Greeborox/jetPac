@@ -19,7 +19,8 @@ var game = (function(){
       currentState: "loadingState",
       spriteSize: 64,
       pressedKeys: {},
-      gravity: 40,
+      gravity: 120,
+      level: 1,
     };
     this.spriteObject = {
       sourceX: 0,
@@ -107,7 +108,7 @@ var game = (function(){
       init: function(){
         console.log("menu state initialised");
         this.initialised = true;
-        var gameLoop = setInterval(function(){
+        this.gameLoop = setInterval(function(){
           self[self.config.currentState].update();
         },1000/self.config.fps);
       },
@@ -116,7 +117,7 @@ var game = (function(){
           clearInterval(self[self.config.currentState].gameLoop);
           self[self.config.currentState].initialised = false;
           self.config.pressedKeys = {};
-          self.config.currentState = "storyState";
+          self.config.currentState = "announceState";
         }
       },
       draw: function(){
@@ -127,12 +128,12 @@ var game = (function(){
         self.ctx.fillText("Menu State",20,self.canvas.height/2-20);
       }
     }
-    this.storyState = {
+    this.announceState = {
       initialised: false,
       init: function(){
-        console.log("story state initialised");
+        console.log("announce state initialised");
         this.initialised = true;
-        var gameLoop = setInterval(function(){
+        this.gameLoop = setInterval(function(){
           self[self.config.currentState].update();
         },1000/self.config.fps);
       },
@@ -149,17 +150,53 @@ var game = (function(){
         self.ctx.font="20px Arial";
   			self.ctx.fillStyle = '#000';
   			self.ctx.textAlign = "left";
-        self.ctx.fillText("Story will appear here",20,self.canvas.height/2-20);
+        self.ctx.fillText("Loading level "+self.config.level,20,self.canvas.height/2-20);
       }
     }
     this.gameState = {
       initialised: false,
+      gameLoop: undefined,
       platforms: [],
       rocketParts: [],
       player: undefined,
+      rocket: undefined,
       init: function(){
         console.log("game state initialised");
         this.initialised = true;
+        this.rocketComplete = false;
+        this.rocketFuelMeter = 0;
+
+        this.messageMachine = {
+          texts: [],
+          dispTimes: [],
+          dispLimit: 240,
+          x: self.canvas.width/2,
+          addMsg: function(msg) {
+            this.texts.push(msg);
+            this.dispTimes.push(0);
+          },
+          removeMsg: function(index) {
+            this.texts.splice(index,1);
+            this.dispTimes.splice(index,1);
+          },
+          updateMsgs: function(){
+            for(var i = 0; i<this.dispTimes.length; i++) {
+              if(this.dispTimes[i] <= this.dispLimit){
+                this.dispTimes[i]++;
+              } else {
+                this.removeMsg(i);
+              }
+            }
+          },
+          drawMsgs: function() {
+              for(var i = 0; i<this.texts.length; i++) {
+                self.ctx.font="20px Arial";
+          			self.ctx.fillStyle = '#FFF';
+          			self.ctx.textAlign = "center";
+                self.ctx.fillText(this.texts[i],self.canvas.width/2,25+(23*i));
+              }
+            },
+          }
 
         this.platform = Object.create(self.spriteObject);
         this.platform.sourceY = 116;
@@ -175,7 +212,7 @@ var game = (function(){
 
         this.ground = Object.create(this.platform);
         this.ground.width = self.canvas.width;
-        this.ground.y = self.canvas.height-this.ground.height-25;
+        this.ground.y = self.canvas.height-this.ground.height+5;
 
         this.platform1 = Object.create(this.platform);
         this.platform1.width = 3*this.platform1.sourceWidth;
@@ -218,7 +255,7 @@ var game = (function(){
         this.thruster = Object.create(this.rocketPart);
         this.thruster.onPlace = true;
         this.thruster.sourceY = 288;
-        this.thruster.onPlaceY = self.gameState.ground.y - this.thruster.height;
+        this.thruster.onPlaceY = self.gameState.ground.y+5 - this.thruster.height;
 
         this.cabin = Object.create(this.rocketPart);
         this.cabin.type = "cabin";
@@ -226,7 +263,7 @@ var game = (function(){
         this.cabin.x = 150;
         this.cabin.y = 60;
         this.cabin.sourceY = 224;
-        this.cabin.onPlaceY = self.gameState.ground.y - this.cabin.height*2;
+        this.cabin.onPlaceY = self.gameState.ground.y+5 - this.cabin.height*2;
 
         this.head = Object.create(this.rocketPart);
         this.head.type = "head";
@@ -234,14 +271,28 @@ var game = (function(){
         this.head.x = 750;
         this.head.y = 20;
         this.head.sourceY = 160;
-        this.head.onPlaceY = self.gameState.ground.y - this.head.height*3;
+        this.head.onPlaceY = self.gameState.ground.y+5 - this.head.height*3;
+
+        this.fuelTank = Object.create(this.rocketPart);
+        this.fuelTank.type = "fuel";
+        this.fuelTank.x = -21;
+        this.fuelTank.y = -40;
+        this.fuelTank.onScreen = false;
+        this.fuelTank.sourceX = 64;
+        this.fuelTank.sourceY = 116;
+        this.fuelTank.width = 21;
+        this.fuelTank.height = 21;
+        this.fuelTank.sourceWidth = 21;
+        this.fuelTank.sourceHeight = 21;
 
         this.rocketParts.push(this.thruster,this.cabin,this.head);
 
         this.rocketLandingZone = {
           onPlaceParts: ["thruster"],
           x: 590,
+          y: self.canvas.height-64-192,
           width: 64,
+          height: 192,
           draw: function(){
             for(var i = 0; i<this.onPlaceParts.length;i++){
               self.gameState[this.onPlaceParts[i]].draw();
@@ -249,17 +300,36 @@ var game = (function(){
           },
         }
 
+        this.rocket = Object.create(self.spriteObject);
+        this.rocket.sourceWidth = 64;
+        this.rocket.sourceHeight = 192;
+        this.rocket.width = 64;
+        this.rocket.height = 192;
+        this.rocket.sourceY = 180;
+        this.rocket.x = 590;
+        this.rocket.y = self.canvas.height-64-192;
+        this.rocket.blastOff = false;
+        this.rocket.draw = function(){
+          self.ctx.drawImage(self.config.masterSprite,
+                             this.sourceX,this.sourceY,this.sourceWidth,this.sourceHeight,
+                             this.x,this.y,this.sourceWidth,this.sourceHeight)
+        };
+        this.rocket.update = function(){
+          this.y -= 8;
+        };
+
         this.player = Object.create(self.spriteObject);
         this.player.sourceWidth = 42;
         this.player.sourceHeight = 58;
         this.player.width = 42;
         this.player.height = 58;
         this.player.facing = 0;
-        this.player.sideSpeed = 40;
+        this.player.sideSpeed = 120;
         this.player.enginePower = 0;
-        this.player.maxEnginePower = 70;
+        this.player.maxEnginePower = 240;
         this.player.onGround = false;
         this.player.carrying = false;
+        this.player.inRocket = false;
         this.player.frames = 3;
         this.player.currFrame = 0;
         this.player.dispFor = 10;
@@ -296,11 +366,11 @@ var game = (function(){
               this.dispFor++;
             }
             if(this.enginePower <= this.maxEnginePower){
-              this.enginePower +=0.5;
+              this.enginePower +=6;
             }
           } else {
             this.currFrame = 0;
-            this.enginePower -= 0.5;
+            this.enginePower -= 6;
             if(this.enginePower < 0){
               this.enginePower = 0;
             }
@@ -311,20 +381,28 @@ var game = (function(){
           this.y = Math.max(0, Math.min(this.y, self.canvas.height - this.height));
         };
 
-        var gameLoop = setInterval(function(){
+        this.messageMachine.addMsg("welcome to Jetpac");
+
+        this.gameLoop = setInterval(function(){
           self[self.config.currentState].update();
         },1000/self.config.fps);
       },
       update: function(){
-        if(this.player){
+        if(this.player && !this.player.inRocket){
           this.player.update();
           this.handlePlayerPickups();
+        }
+        if(this.fuelTank && this.fuelTank.onScreen){
+          this.fuelTank.update();
         }
         // check if something needs to be droped
         for(var i = 0; i < this.rocketParts.length; i++){
           if(this.rocketParts[i].isCarried) {
             this.dropItemToZone(this.rocketParts[i])
           }
+        }
+        if(this.fuelTank && this.fuelTank.isCarried) {
+          this.dropItemToZone(this.fuelTank)
         }
         // updated carried item location
         for(var i = 0; i < this.rocketParts.length; i++){
@@ -333,12 +411,16 @@ var game = (function(){
             this.updateCarriedItem(this.rocketParts[i])
           }
         };
+        if(this.fuelTank && this.fuelTank.isCarried){
+          this.updateCarriedItem(this.fuelTank)
+        }
         //blocking player and items against platforms
         for(var i = 0; i<this.platforms.length;i++){
           for(var j = 0; j<this.rocketParts.length;j++){
             this.blockRect(this.rocketParts[j],this.platforms[i]);
           };
           this.blockRect(this.player,this.platforms[i]);
+          this.blockRect(this.fuelTank,this.platforms[i]);
         };
         //putting the item on place
         for(var i = 0; i<this.rocketParts.length;i++){
@@ -348,55 +430,152 @@ var game = (function(){
             this.itemFallingOnPlace(part);
           }
         };
+        if(this.fuelTank && this.fuelTank.fallingOnPlace) {
+          this.itemFallingOnPlace(this.fuelTank);
+        }
+        //checkign if rocket is complete
+        if(this.rocketLandingZone &&
+           this.rocketLandingZone.onPlaceParts.length === 3 &&
+           !this.fuelTank.onScreen &&
+           this.rocketFuelMeter < 100){
+          this.spawnFuelTank();
+        }
+        //check if player got into rocket
+        if(this.rocketFuelMeter >= 100){
+          if(this.checkCollision(this.player,this.rocketLandingZone)){
+            if(!this.player.inRocket){
+              this.messageMachine.addMsg("You made it!");
+            }
+            this.player.inRocket = true;
+            this.rocket.blastOff = true;
+          }
+        }
+        //update the blastOff rocket
+        if(this.rocket && this.rocket.blastOff){
+          this.rocket.update();
+        }
+        if(this.rocket && this.rocket.blastOff && this.rocket.y < -200){
+          clearInterval(self[self.config.currentState].gameLoop);
+          self[self.config.currentState].initialised = false;
+          this.player = undefined;
+          this.rocket = undefined;
+          this.rocketLandingZone = undefined;
+          this.rocketParts = [];
+          self.config.pressedKeys = {};
+          self.config.level++;
+          self.config.currentState = "announceState";
+        }
+        //update messages
+        if(this.messageMachine && this.messageMachine.texts.length > 0){
+          this.messageMachine.updateMsgs();
+        }
       },
       draw: function(){
         self.ctx.clearRect(0,0,self.canvas.width,self.canvas.height);
         self.ctx.fillStyle = "#000";
         self.ctx.fillRect(0,0,self.canvas.width,self.canvas.height)
-        for(var i = 0; i<this.rocketParts.length;i++){
-          this.rocketParts[i].draw();
-        };
+        if(!this.rocket.blastOff){
+          for(var i = 0; i<this.rocketParts.length;i++){
+            this.rocketParts[i].draw();
+          };
+        }
         for(var i = 0; i<this.platforms.length;i++){
           this.platforms[i].draw();
         }
-        this.rocketLandingZone.draw();
-        this.player.draw();
+        if(!this.rocket.blastOff){
+          this.rocketLandingZone.draw();
+        } else {
+          this.rocket.draw();
+        }
+        if(this.fuelTank.onScreen){
+          this.fuelTank.draw();
+        };
+        if(!this.player.inRocket){
+          this.player.draw();
+        }
+        this.drawGui();
+        if(this.messageMachine && this.messageMachine.texts.length > 0){
+          this.messageMachine.drawMsgs();
+        }
+      },
+      drawGui: function() {
+
+      },
+      resetFuelTank: function(){
+        this.fuelTank.x = -21;
+        this.fuelTank.y = -40;
+        this.fuelTank.onScreen = false;
       },
       itemFallingOnPlace: function(item){
         item.x = this.rocketLandingZone.x;
-        if(item.y > this.ground.y-item.height-50){
+        item.x += this.rocketLandingZone.width/2;
+        item.x -= item.width/2 ;
+        if(item.y > this.ground.y-item.height-20){
           if('onPlace' in item){
-            this.rocketLandingZone.onPlaceParts.push(item.type);
             item.fallingOnPlace = false;
-            item.onPlace = true;
+            if(item.type != 'fuel'){
+              item.onPlace = true;
+              this.rocketLandingZone.onPlaceParts.push(item.type);
+              this.messageMachine.addMsg(item.type + " deployed");
+              if(this.rocketLandingZone.onPlaceParts.length === 3) {
+                this.messageMachine.addMsg("the space ship is ready, now fill it's fuel tanks!")
+              } else {
+                this.messageMachine.addMsg("the space ship is almost ready, only the rocket head to go")
+              }
+            } else {
+              this.rocketFuelMeter += 20;
+              this.resetFuelTank();
+              this.messageMachine.addMsg("You add some fuel to the space ship!");
+              if(this.rocketFuelMeter >= 100) {
+                this.messageMachine.addMsg("The fuel tanks are full! get into the ship and get out of here!")
+              } else {
+                this.messageMachine.addMsg("The fuel tanks are "+this.rocketFuelMeter+" percent full. Keep 'em coming'")
+              }
+            }
           }
         }
       },
+      spawnFuelTank: function(){
+        var newX = Math.floor(Math.random()*(self.canvas.width-21));
+        this.fuelTank.x = newX;
+        this.fuelTank.onScreen = true;
+      },
       updateCarriedItem: function(item){
-        var item = item;
-        item.x = this.player.x-15;
-        item.y = this.player.y-5;
+        var player = this.player;
+        item.x = player.x+player.width/2-item.width/2;
+        item.y = player.y+player.height/2-item.height/2;
       },
       dropItemToZone: function(item){
         var item = item;
         var zone = this.rocketLandingZone;
-        if(item.x+item.width > zone.x+25 && item.x < zone.x+zone.width-25){
-          if(zone.onPlaceParts[zone.onPlaceParts.length-1] == item.prev) {
+        if(item.x+item.width > zone.x+(item.width/2) && item.x < zone.x+zone.width-(item.width/2)){
+          if(zone.onPlaceParts[zone.onPlaceParts.length-1] == item.prev ||
+             this.fuelTank.isCarried) {
             this.player.carrying = false;
             item.isCarried = false;
             item.fallingOnPlace = true;
+            this.messageMachine.addMsg("You deploy the "+item.type);
           }
         }
       },
       handlePlayerPickups: function(){
+        var p = this.player;
+        var fuel = this.fuelTank
         if(self.config.pressedKeys[self.keys.z]){
           if(!this.player.carrying){
             for(var i = 0; i < this.rocketParts.length; i++){
-              var p = this.player;
               var rocketP = this.rocketParts[i];
               if(this.checkCollision(p,rocketP) && !rocketP.isCarried && !rocketP.fallingOnPlace) {
                 p.carrying = true;
                 rocketP.isCarried = true;
+                this.messageMachine.addMsg("You pick up the "+rocketP.type)
+              }
+            }
+            if(fuel.onScreen){
+              if(this.checkCollision(p,fuel) && !fuel.isCarried && !fuel.fallingOnPlace) {
+                p.carrying = true;
+                fuel.isCarried = true;
+                this.messageMachine.addMsg("You pick up the fuel tank")
               }
             }
           }
@@ -406,7 +585,13 @@ var game = (function(){
             if(this.rocketParts[i].isCarried) {
               this.rocketParts[i].isCarried = false;
               this.player.carrying = false;
+              this.messageMachine.addMsg("You drop the "+this.rocketParts[i].type)
             }
+          }
+          if(this.fuelTank.isCarried) {
+            this.fuelTank.isCarried = false;
+            this.player.carrying = false;
+            this.messageMachine.addMsg("You drop the fuel tank")
           }
         }
       },
