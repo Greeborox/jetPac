@@ -21,6 +21,8 @@ var game = (function(){
       pressedKeys: {},
       gravity: 120,
       level: 1,
+      lives: 3,
+      score: 0,
     };
     this.spriteObject = {
       sourceX: 0,
@@ -107,6 +109,9 @@ var game = (function(){
       initialised: false,
       init: function(){
         console.log("menu state initialised");
+        self.config.level = 1;
+        self.config.lives = 3;
+        self.config.score = 0;
         this.initialised = true;
         this.gameLoop = setInterval(function(){
           self[self.config.currentState].update();
@@ -151,6 +156,7 @@ var game = (function(){
   			self.ctx.fillStyle = '#000';
   			self.ctx.textAlign = "left";
         self.ctx.fillText("Loading level "+self.config.level,20,self.canvas.height/2-20);
+        self.ctx.fillText("Your score: "+self.config.score,20,self.canvas.height/2-40);
       }
     }
     this.gameState = {
@@ -158,6 +164,10 @@ var game = (function(){
       gameLoop: undefined,
       platforms: [],
       rocketParts: [],
+      bullets: [],
+      monsters: [],
+      monsterChance: 0.2,
+      restartLevelTime: 60,
       player: undefined,
       rocket: undefined,
       init: function(){
@@ -165,7 +175,9 @@ var game = (function(){
         this.initialised = true;
         this.rocketComplete = false;
         this.rocketFuelMeter = 0;
-
+        this.countDownToRestartLevel = 0;
+        this.monsterInterval = 40;
+        this.lastMonster = 0;
         this.messageMachine = {
           texts: [],
           dispTimes: [],
@@ -189,14 +201,14 @@ var game = (function(){
             }
           },
           drawMsgs: function() {
-              for(var i = 0; i<this.texts.length; i++) {
-                self.ctx.font="20px Arial";
-          			self.ctx.fillStyle = '#FFF';
-          			self.ctx.textAlign = "center";
-                self.ctx.fillText(this.texts[i],self.canvas.width/2,25+(23*i));
-              }
-            },
-          }
+            for(var i = 0; i<this.texts.length; i++) {
+              self.ctx.font="20px Arial";
+        			self.ctx.fillStyle = '#FFF';
+        			self.ctx.textAlign = "center";
+              self.ctx.fillText(this.texts[i],self.canvas.width/2,25+(23*i));
+            }
+          },
+        }
 
         this.platform = Object.create(self.spriteObject);
         this.platform.sourceY = 116;
@@ -295,17 +307,19 @@ var game = (function(){
           height: 192,
           draw: function(){
             for(var i = 0; i<this.onPlaceParts.length;i++){
-              self.gameState[this.onPlaceParts[i]].draw();
+              if(this.onPlaceParts[i]){
+                self.gameState[this.onPlaceParts[i]].draw();
+              }
             }
           },
-        }
+        };
 
         this.rocket = Object.create(self.spriteObject);
         this.rocket.sourceWidth = 64;
         this.rocket.sourceHeight = 192;
         this.rocket.width = 64;
         this.rocket.height = 192;
-        this.rocket.sourceY = 180;
+        this.rocket.sourceY = 160;
         this.rocket.x = 590;
         this.rocket.y = self.canvas.height-64-192;
         this.rocket.blastOff = false;
@@ -330,6 +344,8 @@ var game = (function(){
         this.player.onGround = false;
         this.player.carrying = false;
         this.player.inRocket = false;
+        this.player.shooting = false;
+        this.player.isHit = false;
         this.player.frames = 3;
         this.player.currFrame = 0;
         this.player.dispFor = 10;
@@ -337,9 +353,11 @@ var game = (function(){
         this.player.x = self.canvas.width/2-this.player.width/2;
         this.player.y = self.canvas.height/2-150;
         this.player.draw = function(){
-          self.ctx.drawImage(self.config.masterSprite,
+          if(!this.isHit){
+            self.ctx.drawImage(self.config.masterSprite,
                               this.sourceX+this.sourceWidth*this.currFrame,this.sourceY+this.height*this.facing,this.sourceWidth,this.sourceHeight,
                               this.x,this.y,this.width,this.height)
+          };
         };
         this.player.update = function() {
           if(self.config.pressedKeys[self.keys.LEFT] && !self.config.pressedKeys[self.keys.RIGHT]) {
@@ -375,44 +393,211 @@ var game = (function(){
               this.enginePower = 0;
             }
           }
+          if(self.config.pressedKeys[self.keys.SPACE]){
+            if(!this.shooting){
+              var bulletY = this.y+this.height/2;
+              var bulletX;
+              if(!this.facing){
+                bulletX = this.x+this.width;
+              } else {
+                bulletX = this.x;
+              }
+              self[self.config.currentState].shootBullet(bulletX,bulletY,this.facing);
+              this.shooting = true;
+            }
+          } else {
+            this.shooting = false;
+          }
 
           this.y += (self.config.gravity*(1/self.config.fps))-(this.enginePower*(1/self.config.fps));
           this.x = Math.max(0, Math.min(this.x, self.canvas.width - this.width));
           this.y = Math.max(0, Math.min(this.y, self.canvas.height - this.height));
         };
 
-        this.messageMachine.addMsg("welcome to Jetpac");
+        this.bullet = Object.create(self.spriteObject);
+        this.bullet.width = 12;
+        this.bullet.height = 4;
+        this.bullet.sourceWidth = 12;
+        this.bullet.sourceHeight = 4;
+        this.bullet.sourceY = 352;
+        this.bullet.direction = 0;
+        this.bullet.speed = 460;
+        this.bullet.update = function() {
+          if(!this.direction){
+            this.x += this.speed*(1/self.config.fps)
+          } else {
+            this.x -= this.speed*(1/self.config.fps)
+          };
+        };
+        this.bullet.draw = function(){
+          self.ctx.drawImage(self.config.masterSprite,
+                              this.sourceX+this.width*this.direction,this.sourceY,this.sourceWidth,this.sourceHeight,
+                              this.x,this.y,this.width,this.height)
+        };
+
+        this.monster = Object.create(self.spriteObject);
+        this.monster.sourceX = 80;
+        this.monster.sourceY = 146;
+        this.monster.sourceWidth = 40;
+        this.monster.sourceHeight = 30;
+        this.monster.width = 40;
+        this.monster.height = 30;
+        this.monster.frames = 2;
+        this.monster.speed = 120;
+        this.monster.currFrame = 0;
+        this.monster.dispFor = 0;
+        this.monster.dispTime = 10;
+        this.monster.direction = 0;
+        this.monster.angle = 0;
+        this.monster.baseY = 0;
+        this.monster.value = 15;
+        this.monster.waveRange = 30;
+        this.monster.isShotDown = false;
+        this.monster.lingerAfterShotDown = 30;
+        this.monster.shotDownFor = 0;
+        this.monster.update = function() {
+          if(!this.isShotDown){
+            if(this.dispFor > this.dispTime){
+              this.currFrame++;
+              if(this.currFrame === this.frames){
+                this.currFrame = 0;
+              }
+              this.dispFor = 0;
+            } else {
+              this.dispFor++;
+            }
+            if(!this.direction){
+              this.x += this.speed*(1/self.config.fps)
+            } else {
+              this.x -= this.speed*(1/self.config.fps)
+            };
+            this.y = this.baseY + Math.sin(this.angle) * this.waveRange;
+            this.angle += 0.1;
+            if(this.angle > Math.PI*2){
+              this.angle = 0;
+            };
+          } else {
+            this.shotDownFor++;
+          }
+        }
+        this.monster.draw = function(){
+          if(!this.isShotDown){
+            var currSourceX = this.sourceX+this.sourceWidth*this.currFrame;
+            var currSourceY = this.sourceY+(this.height*(self.config.level%3))
+            self.ctx.drawImage(self.config.masterSprite,
+                                currSourceX,currSourceY,this.sourceWidth,this.sourceHeight,
+                                this.x,this.y,this.width,this.height);
+          } else {
+            self.ctx.drawImage(self.config.masterSprite,
+                                80,236,this.sourceWidth,this.sourceHeight,
+                                this.x,this.y,this.width,this.height);
+          }
+        }
+
+        this.treasure = Object.create(spriteObject);
+        this.treasure.sourceX = 80;
+        this.treasure.sourceY = 266;
+        this.treasure.sourceWidth = 40;
+        this.treasure.sourceHeight = 30;
+        this.treasure.width = 40;
+        this.treasure.height = 30;
+        this.treasure.y = -50;
+        this.treasure.value = 250;
+        this.treasure.onScreen = false;
+        this.treasure.update = function(){
+          this.y += (self.config.gravity*(1/self.config.fps)/2)
+        };
+        this.treasure.draw = function(){
+            self.ctx.drawImage(self.config.masterSprite,
+                                this.sourceX,this.sourceY,this.sourceWidth,this.sourceHeight,
+                                this.x,this.y,this.sourceWidth,this.sourceHeight)
+        }
+
+
+        var msg = "welcome to Jetpac level "+self.config.level+". You have "+self.config.lives+" lives left."
+        this.messageMachine.addMsg(msg);
 
         this.gameLoop = setInterval(function(){
           self[self.config.currentState].update();
         },1000/self.config.fps);
       },
       update: function(){
-        if(this.player && !this.player.inRocket){
+        if(this.player && !this.player.inRocket && !this.player.isHit){
           this.player.update();
           this.handlePlayerPickups();
+        }
+        if(this.player.isHit) {
+          if(this.countDownToRestartLevel > this.restartLevelTime) {
+            clearInterval(self[self.config.currentState].gameLoop);
+            self[self.config.currentState].initialised = false;
+            this.player = undefined;
+            this.rocket = undefined;
+            this.rocketLandingZone = undefined;
+            this.rocketParts = [];
+            this.bullets = [];
+            this.monsters = [];
+            self.config.pressedKeys = {};
+            self.config.lives--;
+            if(self.config.lives > 0) {
+              self.config.currentState = "announceState";
+            } else {
+              self.config.currentState = "gameOver";
+            }
+
+          }
+          this.countDownToRestartLevel++
         }
         if(this.fuelTank && this.fuelTank.onScreen){
           this.fuelTank.update();
         }
-        // check if something needs to be droped
-        for(var i = 0; i < this.rocketParts.length; i++){
-          if(this.rocketParts[i].isCarried) {
-            this.dropItemToZone(this.rocketParts[i])
+        this.spawnTreasure();
+        if(this.treasure && this.treasure.onScreen){
+          this.treasure.update();
+          if(this.checkCollision(this.player,this.treasure)){
+            this.collectTreasure();
           }
+        }
+        // update items
+        for(var i = 0; i < this.rocketParts.length; i++) {
+          this.rocketParts[i].update();
+      	  if(this.rocketParts[i].isCarried) {
+            this.dropItemToZone(this.rocketParts[i])
+      	    this.updateCarriedItem(this.rocketParts[i])
+          }
+          if(this.rocketParts[i].fallingOnPlace) {
+            this.itemFallingOnPlace(this.rocketParts[i]);
+          }
+        }
+        for(var i = 0; i < this.bullets.length; i++) {
+          this.bullets[i].update();
+          if(this.bullets[i].x < 0 - this.bullets[i].width ||
+             this.bullets[i].x > self.canvas.width + this.bullets[i].width){
+               this.bullets.splice[i,1];
+             }
+        }
+        for(var i = 0; i < this.monsters.length; i++) {
+          this.monsters[i].update();
+          if(this.monsters[i].isShotDown && this.monsters[i].shotDownFor > this.monsters[i].lingerAfterShotDown) {
+            this.monsters.splice(i,1);
+          } else if(this.monsters[i].x < -100 ||
+             this.monsters[i].x > self.canvas.width + 100){
+               this.monsters.splice(i,1);
+               i--;
+          }
+        }
+        this.checkMonsterCollision();
+        if(this.lastMonster > (this.monsterInterval-self.config.level)) {
+          this.spawnMonster();
+          this.lastMonster = 0;
+        } else {
+          this.lastMonster++;
         }
         if(this.fuelTank && this.fuelTank.isCarried) {
           this.dropItemToZone(this.fuelTank)
+      	  this.updateCarriedItem(this.fuelTank)
         }
-        // updated carried item location
-        for(var i = 0; i < this.rocketParts.length; i++){
-          var p = this.player;
-          if(this.rocketParts[i].isCarried) {
-            this.updateCarriedItem(this.rocketParts[i])
-          }
-        };
-        if(this.fuelTank && this.fuelTank.isCarried){
-          this.updateCarriedItem(this.fuelTank)
+        if(this.fuelTank && this.fuelTank.fallingOnPlace) {
+          this.itemFallingOnPlace(this.fuelTank);
         }
         //blocking player and items against platforms
         for(var i = 0; i<this.platforms.length;i++){
@@ -421,25 +606,16 @@ var game = (function(){
           };
           this.blockRect(this.player,this.platforms[i]);
           this.blockRect(this.fuelTank,this.platforms[i]);
+          this.blockRect(this.treasure,this.platforms[i]);
         };
-        //putting the item on place
-        for(var i = 0; i<this.rocketParts.length;i++){
-          var part = this.rocketParts[i];
-          part.update();
-          if(part.fallingOnPlace) {
-            this.itemFallingOnPlace(part);
-          }
-        };
-        if(this.fuelTank && this.fuelTank.fallingOnPlace) {
-          this.itemFallingOnPlace(this.fuelTank);
-        }
+
         //checkign if rocket is complete
         if(this.rocketLandingZone &&
            this.rocketLandingZone.onPlaceParts.length === 3 &&
            !this.fuelTank.onScreen &&
            this.rocketFuelMeter < 100){
-          this.spawnFuelTank();
-        }
+             this.spawnFuelTank();
+           }
         //check if player got into rocket
         if(this.rocketFuelMeter >= 100){
           if(this.checkCollision(this.player,this.rocketLandingZone)){
@@ -448,11 +624,16 @@ var game = (function(){
             }
             this.player.inRocket = true;
             this.rocket.blastOff = true;
+            self.config.score += 100*self.config.level;
           }
         }
         //update the blastOff rocket
         if(this.rocket && this.rocket.blastOff){
           this.rocket.update();
+        }
+        //update messages
+        if(this.messageMachine && this.messageMachine.texts.length > 0){
+          this.messageMachine.updateMsgs();
         }
         if(this.rocket && this.rocket.blastOff && this.rocket.y < -200){
           clearInterval(self[self.config.currentState].gameLoop);
@@ -461,13 +642,11 @@ var game = (function(){
           this.rocket = undefined;
           this.rocketLandingZone = undefined;
           this.rocketParts = [];
+          this.bullets = [];
+          this.monsters = [];
           self.config.pressedKeys = {};
           self.config.level++;
           self.config.currentState = "announceState";
-        }
-        //update messages
-        if(this.messageMachine && this.messageMachine.texts.length > 0){
-          this.messageMachine.updateMsgs();
         }
       },
       draw: function(){
@@ -490,13 +669,85 @@ var game = (function(){
         if(this.fuelTank.onScreen){
           this.fuelTank.draw();
         };
+        if(this.treasure.onScreen){
+          this.treasure.draw();
+        };
         if(!this.player.inRocket){
           this.player.draw();
+        };
+        for(var i = 0; i < this.bullets.length; i++) {
+          this.bullets[i].draw();
+        }
+        for(var i = 0; i < this.monsters.length; i++) {
+          this.monsters[i].draw();
         }
         this.drawGui();
         if(this.messageMachine && this.messageMachine.texts.length > 0){
           this.messageMachine.drawMsgs();
         }
+      },
+      collectTreasure: function(){
+        self.config.score += this.treasure.value*self.config.level;
+        this.treasure.x = -41;
+        this.treasure.y = -40;
+        this.treasure.onScreen = false;
+      },
+      spawnTreasure: function(){
+        if(!this.treasure.onScreen){
+          var treasureChance = Math.random();
+          console.log(treasureChance)
+          if(treasureChance < 0.005){
+            var treasureType = Math.random();
+            this.treasure.sourceY = treasureType > 0.5 ? 266 : 296;
+            var newX = Math.floor(Math.random()*(self.canvas.width-21));
+            this.treasure.x = newX;
+            this.treasure.onScreen = true;
+          }
+        }
+      },
+      checkMonsterCollision: function() {
+        for(var i = 0; i < this.monsters.length; i++){
+          var monster = this.monsters[i];
+          if(!monster.isShotDown){
+            for(var j = 0; j < this.bullets.length; j++){
+              var bullet = this.bullets[j];
+              if(this.checkCollision(monster,bullet)){
+                monster.isShotDown = true;
+                this.bullets.splice(j,1);
+                self.config.score += monster.value*self.config.level;
+              }
+            }
+            if(this.checkCollision(monster,this.player)){
+              if(!this.player.isHit){
+                this.messageMachine.addMsg("Oh no! You have been hit!");
+              }
+              this.player.isHit = true;
+            }
+          }
+        }
+      },
+      spawnMonster: function() {
+        var rand = Math.random();
+        if(rand < this.monsterChance) {
+          var randDirection = Math.random();
+          var direction = randDirection < 0.5 ? 0 : 1;
+          var newY = Math.floor(Math.random() * ((self.canvas.height-64) - 40) + 40);
+          var newMonster = Object.create(this.monster);
+          var randWave = Math.floor(Math.random() * (45 - 15) + 15);
+          newMonster.x = direction ? self.canvas.width : -40;
+          newMonster.baseY = newY;
+          newMonster.direction = direction;
+          newMonster.waveRange = randWave;
+          this.monsters.push(newMonster);
+          //console.log(this.monsters.length);
+        }
+      },
+      shootBullet: function(x,y,direction) {
+        var newBullet = Object.create(this.bullet);
+        newBullet.direction = direction;
+        newBullet.x = x;
+        newBullet.y = y;
+        this.bullets.push(newBullet);
       },
       drawGui: function() {
 
@@ -596,27 +847,29 @@ var game = (function(){
         }
       },
       blockRect: function(r1,r2){
-        var vx = r1.centerX() - r2.centerX();
-        var vy = r1.centerY() - r2.centerY();
-        var combinedHalfWidths = r1.width/2 + r2.width/2;
-        var combinedHalfHeights = r1.height/2 + r2.height/2;
-        if(Math.abs(vx) < combinedHalfWidths){
-          if(Math.abs(vy) < combinedHalfHeights){
-            var overlapX = combinedHalfWidths - Math.abs(vx);
-            var overlapY = combinedHalfHeights - Math.abs(vy);
-            if(overlapX >= overlapY) {
-              if(vy > 0) {
-                r1.y = r1.y + overlapY;
+        if(r1&&r2){
+          var vx = r1.centerX() - r2.centerX();
+          var vy = r1.centerY() - r2.centerY();
+          var combinedHalfWidths = r1.width/2 + r2.width/2;
+          var combinedHalfHeights = r1.height/2 + r2.height/2;
+          if(Math.abs(vx) < combinedHalfWidths){
+            if(Math.abs(vy) < combinedHalfHeights){
+              var overlapX = combinedHalfWidths - Math.abs(vx);
+              var overlapY = combinedHalfHeights - Math.abs(vy);
+              if(overlapX >= overlapY) {
+                if(vy > 0) {
+                  r1.y = r1.y + overlapY;
+                } else {
+                  if(r1.hasOwnProperty('onGround'))
+                  r1.onGround = true;
+                  r1.y = r1.y - overlapY;
+                }
               } else {
-                if(r1.hasOwnProperty('onGround'))
-                r1.onGround = true;
-                r1.y = r1.y - overlapY;
-              }
-            } else {
-              if(vx > 0) {
-                r1.x = r1.x + overlapX;
-              } else {
-                r1.x = r1.x - overlapX;
+                if(vx > 0) {
+                  r1.x = r1.x + overlapX;
+                } else {
+                  r1.x = r1.x - overlapX;
+                }
               }
             }
           }
@@ -629,6 +882,32 @@ var game = (function(){
                  obj2.y + obj2.height < obj1.y);
       },
     };
+    this.gameOver = {
+      initialised: false,
+      init: function(){
+        console.log("game Over state initialised");
+        this.initialised = true;
+        this.gameLoop = setInterval(function(){
+          self[self.config.currentState].update();
+        },1000/self.config.fps);
+      },
+      update: function(){
+        if(self.config.pressedKeys[self.keys.SPACE]){
+          clearInterval(self[self.config.currentState].gameLoop);
+          self[self.config.currentState].initialised = false;
+          self.config.pressedKeys = {};
+          self.config.currentState = "menuState";
+        }
+      },
+      draw: function(){
+        self.ctx.clearRect(0,0,self.canvas.width,self.canvas.height);
+        self.ctx.font="20px Arial";
+  			self.ctx.fillStyle = '#000';
+  			self.ctx.textAlign = "left";
+        self.ctx.fillText("Game Over",20,self.canvas.height/2-20);
+        self.ctx.fillText("score: "+self.config.score,20,self.canvas.height/2-40);
+      }
+    }
 
     return {
       init: function(){
