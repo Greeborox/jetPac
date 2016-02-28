@@ -10,9 +10,13 @@ var game = (function(){
       RIGHT: 39,
       z: 90,
       x: 88,
+      i: 73,
     }
     this.config = {
       masterSprite: undefined,
+      menuScreen: undefined,
+      instructionsScreen: undefined,
+      gameOverScreen: undefined,
       assets: [],
       loadedAssets: 0,
       fps: 60,
@@ -103,11 +107,27 @@ var game = (function(){
         self.config.masterSprite.src = "GFX/spriteSheet.png";
         self.config.masterSprite.addEventListener("load",function(){self.config.loadedAssets++},false)
         self.config.assets.push(self.config.masterSprite);
+
+        self.config.menuScreen = new Image();
+        self.config.menuScreen.src = "GFX/Menu.png";
+        self.config.menuScreen.addEventListener("load",function(){self.config.loadedAssets++},false)
+        self.config.assets.push(self.config.menuScreen);
+
+        self.config.instructionsScreen = new Image();
+        self.config.instructionsScreen.src = "GFX/instructions.png";
+        self.config.instructionsScreen.addEventListener("load",function(){self.config.loadedAssets++},false)
+        self.config.assets.push(self.config.instructionsScreen);
+
+        self.config.gameOverScreen = new Image();
+        self.config.gameOverScreen.src = "GFX/over.png";
+        self.config.gameOverScreen.addEventListener("load",function(){self.config.loadedAssets++},false)
+        self.config.assets.push(self.config.gameOverScreen);
       }
     }
     this.menuState = {
       initialised: false,
       init: function(){
+        this.initialised = true;
         console.log("menu state initialised");
         self.config.level = 1;
         self.config.lives = 3;
@@ -124,20 +144,23 @@ var game = (function(){
           self.config.pressedKeys = {};
           self.config.currentState = "announceState";
         }
+        if(self.config.pressedKeys[self.keys.i]){
+          clearInterval(self[self.config.currentState].gameLoop);
+          self[self.config.currentState].initialised = false;
+          self.config.pressedKeys = {};
+          self.config.currentState = "instructionsState";
+        }
       },
       draw: function(){
         self.ctx.clearRect(0,0,self.canvas.width,self.canvas.height);
-        self.ctx.font="20px Arial";
-  			self.ctx.fillStyle = '#000';
-  			self.ctx.textAlign = "left";
-        self.ctx.fillText("Menu State",20,self.canvas.height/2-20);
+        self.ctx.drawImage(self.config.menuScreen,0,0,self.canvas.width,self.canvas.height);
       }
-    }
-    this.announceState = {
+    };
+    this.instructionsState = {
       initialised: false,
       init: function(){
-        console.log("announce state initialised");
         this.initialised = true;
+        console.log("isntructions state initialised");
         this.gameLoop = setInterval(function(){
           self[self.config.currentState].update();
         },1000/self.config.fps);
@@ -147,16 +170,126 @@ var game = (function(){
           clearInterval(self[self.config.currentState].gameLoop);
           self[self.config.currentState].initialised = false;
           self.config.pressedKeys = {};
-          self.config.currentState = "gameState";
+          self.config.currentState = "menuState";
         }
       },
       draw: function(){
         self.ctx.clearRect(0,0,self.canvas.width,self.canvas.height);
+        self.ctx.drawImage(self.config.instructionsScreen,0,0,self.canvas.width,self.canvas.height);
+      }
+    };
+    this.announceState = {
+      initialised: false,
+      mockMonsters: [],
+      mockPlayer: undefined,
+      init: function(){
+        console.log("announce state initialised");
+        this.initialised = true;
+
+        this.mockPlayer = Object.create(self.spriteObject);
+        this.mockPlayer.sourceWidth = 42;
+        this.mockPlayer.sourceHeight = 58;
+        this.mockPlayer.width = 42;
+        this.mockPlayer.height = 58;
+        this.mockPlayer.sideSpeed = 250;
+        this.mockPlayer.frames = 3;
+        this.mockPlayer.currFrame = 0;
+        this.mockPlayer.dispFor = 10;
+        this.mockPlayer.dispTime = 0;
+        this.mockPlayer.x = 0-this.mockPlayer.width;
+        this.mockPlayer.y = self.canvas.height/2-150;
+        this.mockPlayer.draw = function(){
+          self.ctx.drawImage(self.config.masterSprite,
+                              this.sourceX+this.sourceWidth*this.currFrame,this.sourceY,this.sourceWidth,this.sourceHeight,
+                              this.x,this.y,this.width,this.height)
+        };
+        this.mockPlayer.update = function() {
+          this.x += this.sideSpeed*(1/self.config.fps)
+          if(this.dispFor > this.dispTime){
+            this.currFrame++;
+            if(this.currFrame === this.frames){
+              this.currFrame = 0;
+            }
+            this.dispFor = 0;
+          } else {
+            this.dispFor++;
+          }
+        };
+
+        this.mockMonster = Object.create(self.spriteObject);
+        this.mockMonster.sourceX = 80;
+        this.mockMonster.sourceY = 146;
+        this.mockMonster.sourceWidth = 40;
+        this.mockMonster.sourceHeight = 30;
+        this.mockMonster.width = 40;
+        this.mockMonster.height = 30;
+        this.mockMonster.frames = 2;
+        this.mockMonster.speed = 200;
+        this.mockMonster.currFrame = 0;
+        this.mockMonster.dispFor = 0;
+        this.mockMonster.dispTime = 10;
+        this.mockMonster.update = function() {
+          this.x += this.speed*(1/self.config.fps)
+          if(this.dispFor > this.dispTime){
+            this.currFrame++;
+            if(this.currFrame === this.frames){
+              this.currFrame = 0;
+            }
+            this.dispFor = 0;
+          } else {
+            this.dispFor++;
+          }
+        };
+        this.mockMonster.draw = function(){
+          self.ctx.drawImage(self.config.masterSprite,
+                            this.sourceX+this.sourceWidth*this.currFrame,this.sourceY,this.sourceWidth,this.sourceHeight,
+                            this.x,this.y,this.width,this.height);
+        };
+
+        this.mockMonster1 = Object.create(this.mockMonster);
+        this.mockMonster1.x = -100-this.mockMonster.width;
+        this.mockMonster1.y = self.canvas.height/2-150;
+        this.mockMonster2 = Object.create(this.mockMonster);
+        this.mockMonster2.sourceY = 176;
+        this.mockMonster2.x = -80-this.mockMonster.width;
+        this.mockMonster2.y = self.canvas.height/2-190;
+        this.mockMonster3 = Object.create(this.mockMonster);
+        this.mockMonster3.sourceY = 206;
+        this.mockMonster3.x = -50-this.mockMonster.width;
+        this.mockMonster3.y = self.canvas.height/2-110;
+
+        this.mockMonsters.push(this.mockMonster1,this.mockMonster2,this.mockMonster3)
+
+        this.gameLoop = setInterval(function(){
+          self[self.config.currentState].update();
+        },1000/self.config.fps);
+      },
+      update: function(){
+        this.mockPlayer.update();
+        for(var i = 0;i<this.mockMonsters.length;i++){
+          this.mockMonsters[i].update();
+        }
+        if(this.mockMonster2.x > canvas.width+this.mockMonster2.width){
+          clearInterval(self[self.config.currentState].gameLoop);
+          self[self.config.currentState].initialised = false;
+          this.mockMonsters = [];
+          this.mockPlayer = undefined;
+          self.config.pressedKeys = {};
+          self.config.currentState = "gameState";
+        }
+      },
+      draw: function(){
+        self.ctx.fillStyle = '#000';
+        self.ctx.fillRect(0,0,self.canvas.width,self.canvas.height);
+        this.mockPlayer.draw();
+        for(var i = 0;i<this.mockMonsters.length;i++){
+          this.mockMonsters[i].draw();
+        }
         self.ctx.font="20px Arial";
-  			self.ctx.fillStyle = '#000';
-  			self.ctx.textAlign = "left";
-        self.ctx.fillText("Loading level "+self.config.level,20,self.canvas.height/2-20);
-        self.ctx.fillText("Your score: "+self.config.score,20,self.canvas.height/2-40);
+  			self.ctx.fillStyle = '#FFF';
+        self.ctx.textAlign = "center";
+        self.ctx.fillText("Loading level "+self.config.level,self.canvas.width/2,25);
+        self.ctx.fillText("Your score: "+self.config.score,self.canvas.width/2,50);
       }
     }
     this.gameState = {
@@ -695,7 +828,6 @@ var game = (function(){
       spawnTreasure: function(){
         if(!this.treasure.onScreen){
           var treasureChance = Math.random();
-          console.log(treasureChance)
           if(treasureChance < 0.005){
             var treasureType = Math.random();
             this.treasure.sourceY = treasureType > 0.5 ? 266 : 296;
@@ -766,6 +898,8 @@ var game = (function(){
             item.fallingOnPlace = false;
             if(item.type != 'fuel'){
               item.onPlace = true;
+              item.x = -64;
+              item.y = -64;
               this.rocketLandingZone.onPlaceParts.push(item.type);
               this.messageMachine.addMsg(item.type + " deployed");
               if(this.rocketLandingZone.onPlaceParts.length === 3) {
@@ -876,10 +1010,12 @@ var game = (function(){
         }
       },
       checkCollision: function(obj1,obj2) {
-        return !(obj1.x + obj1.width < obj2.x ||
-                 obj2.x + obj2.width < obj1.x ||
-                 obj1.y + obj1.height < obj2.y ||
-                 obj2.y + obj2.height < obj1.y);
+        if(obj1 && obj2) {
+          return !(obj1.x + obj1.width < obj2.x ||
+                   obj2.x + obj2.width < obj1.x ||
+                   obj1.y + obj1.height < obj2.y ||
+                   obj2.y + obj2.height < obj1.y);
+        }
       },
     };
     this.gameOver = {
@@ -901,11 +1037,11 @@ var game = (function(){
       },
       draw: function(){
         self.ctx.clearRect(0,0,self.canvas.width,self.canvas.height);
+        self.ctx.drawImage(self.config.gameOverScreen,0,0,self.canvas.width,self.canvas.height);
         self.ctx.font="20px Arial";
-  			self.ctx.fillStyle = '#000';
+  			self.ctx.fillStyle = '#FFF';
   			self.ctx.textAlign = "left";
-        self.ctx.fillText("Game Over",20,self.canvas.height/2-20);
-        self.ctx.fillText("score: "+self.config.score,20,self.canvas.height/2-40);
+        self.ctx.fillText("Final score: "+self.config.score,20,self.canvas.height/2+40);
       }
     }
 
